@@ -1,6 +1,19 @@
 from statsbombpy import sb
 
 def get_coordinates(stadium):
+    """
+    A function that gives you coordinates from all the stadiums participating in Laliga from Statsbomb per November, 2026.
+
+    Input:
+    ----- 
+        stadium: string
+            name of stadium which you need the coordinates to
+    
+    Return
+    ------
+        stadium_coordinates: tuple
+            consists of latitude and longitude
+    """
     stadium_coordinates = {
         "Abanca-Balaídos" : (42.211766, -8.739666),
         "Bernabéu" : (40.453044, -3.688197),
