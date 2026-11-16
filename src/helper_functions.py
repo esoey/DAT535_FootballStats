@@ -1,5 +1,3 @@
-from statsbombpy import sb
-
 def get_coordinates(stadium):
     """
     A function that gives you coordinates from all the stadiums participating in Laliga from Statsbomb per November, 2026.

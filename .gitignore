@@ -219,7 +219,42 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# csv
-*.csv
+# Data Engineering layers
+# Ignore generated datasets, but keep folder structure
+/data/bronze/**
+/data/silver/**
+/data/gold/**
 
-bronze/*
+!/data/bronze/.gitkeep
+!/data/silver/.gitkeep
+!/data/gold/.gitkeep
+
+# Raw and processed data files
+*.csv
+*.csv.gz
+*.parquet
+*.json.gz
+
+# Apache Spark
+.sparkStaging/
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+_SUCCESS
+_temporary/
+
+# Local Spark and Hadoop logs
+spark-events/
+*.log
+
+# Jupyter temporary files
+.ipynb_checkpoints/
+
+# Local environment files
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
