@@ -1,16 +1,36 @@
+"""
+Helper functions for...
+"""
+from pathlib import Path
+
+def get_paths(path: str | Path = Path(__file__).parent.parent.parent / "open-data"):
+    """
+    Retrieves the different paths for the statsbomb data.
+
+    Args:
+        path (str): Path to the statsbomb folder (defaults to a folder-structure above the repo).
+
+    Returns:
+        Dictionary with specific paths.
+    """
+
+    
+    return {
+        "COMPETITIONS": f"{path}/data/competitions.json",
+        "MATCHES": f"{path}/data/matches",
+        "EVENTS": f"{path}/data/events"
+    }
+
+
 def get_coordinates(stadium):
     """
     A function that gives you coordinates from all the stadiums participating in Laliga from Statsbomb per November, 2026.
 
-    Input:
-    ----- 
-        stadium: string
-            name of stadium which you need the coordinates to
-    
-    Return
-    ------
-        stadium_coordinates: tuple
-            consists of latitude and longitude
+    Args:
+        stadium: Name of the stadium.
+
+    Returns:
+        Tuple with latitude and longitude.
     """
     stadium_coordinates = {
         "Abanca-Balaídos" : (42.211766, -8.739666),
