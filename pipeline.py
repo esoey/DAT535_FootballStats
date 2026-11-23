@@ -45,9 +45,9 @@ class Pipeline:
         self.competitions_dir = temp_dir["COMPETITIONS"]
         self.matches_dir = temp_dir["MATCHES"]
         self.events_dir = temp_dir["EVENTS"]
-        self.bronze_dir = f"{shared_dir}/bronze"
-        self.silver_dir = f"{shared_dir}/silver"
-        self.gold_dir = f"{shared_dir}/gold"
+        self.bronze_dir = f"{shared_dir}/data/bronze/statsbomb"
+        self.silver_dir = f"{shared_dir}/data/silver"
+        self.gold_dir = f"{shared_dir}/data/gold"
 
 
     def create_spark_session(self):
@@ -70,6 +70,15 @@ class Pipeline:
                 df = self.spark.read.schema(schema).json(self.matches_dir, multiLine=True, recursiveFileLookup=True)
             case "events":
                 df = self.spark.read.schema(schema).json(self.events_dir, multiLine=True, recursiveFileLookup=True)
+                df = df.withColumn(
+                    "match_id",
+                    regexp_extract(
+                        input_file_name(),
+                        r"/(\d+)\.json$",
+                        1
+                    ).cast("long")
+                )
+                
         df = df.withColumn("ingest_date", to_date(current_timestamp()))
         df = df.withColumn("ingest_time", current_timestamp())
 

@@ -4,5 +4,8 @@ pipeline = Pipeline()
 
 pipeline.create_spark_session()
 
-df = pipeline.ingest_data("competitions")
-pipeline.save_compressed_data(df, "competitions")
+categories = ["comptetitions", "matches", "events"]
+
+for category in categories:
+    df = pipeline.ingest_data(category)
+    pipeline.save_compressed_data(df, category)
