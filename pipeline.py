@@ -29,12 +29,19 @@ except ImportError as e:
     sys.exit(1)
 
 from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parent
 
-
-class BronzePipeline:
+class Pipeline:
     def __init__(self, data_dir: str = None, shared_dir: str = None):
         """Initialize the pipeline with output directories."""
-        temp_dir = self.get_paths(data_dir)
+        if data_dir is None:
+            temp_dir = self.get_paths()
+        else:
+            temp_dir = self.get_paths(data_dir)
+    
+        if shared_dir is None:
+            shared_dir = PROJECT_ROOT
+
         self.competitions_dir = temp_dir["COMPETITIONS"]
         self.matches_dir = temp_dir["MATCHES"]
         self.events_dir = temp_dir["EVENTS"]
@@ -52,7 +59,7 @@ class BronzePipeline:
 
 
     def ingest_data(self, category):
-        """"""
+        """a"""
         logger.info(f"Fetching data for {category}.")
 
         schema = self.get_schema(category)
@@ -84,7 +91,7 @@ class BronzePipeline:
         logger.info(f"Successfully created Parquet-files for {category}.")
 
 
-    def get_paths(path: str | Path = Path(__file__).parent.parent.parent / "open-data"):
+    def get_paths(self, path: str | Path = Path(__file__).parent.parent / "open-data"):
         """
         Retrieves the different paths for the statsbomb data.
 
@@ -101,7 +108,7 @@ class BronzePipeline:
         }
 
 
-    def get_schema(category):
+    def get_schema(self, category):
         """
         Get the specific schema for the different ingestions.
 
