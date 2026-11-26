@@ -10,7 +10,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 try:
-    from src.spark_config import initialize_spark 
+    from src.spark_config import initialize_spark
+    from pyspark.sql import DataFrame 
     from pyspark.sql.functions import (
         col, lit, when, count, sum as spark_sum, avg,
         min as spark_min, max as spark_max, round as spark_round,
@@ -28,7 +29,22 @@ except ImportError as e:
     logger.error("Please install PySpark: pip install pyspark")
     sys.exit(1)
 
+try:
+    import meteostat as ms
+except ImportError as e:
+    logger.error(f"Meteostat weather data import failed: {e}")
+    logger.error("Please install Meteostat: pip install meteostat")
+    sys.exit(1)
+try:
+    import pandas as pd
+except ImportError as e:
+    logger.error(f"Pandas import failed: {e}")
+    logger.error("Please install Pandas: pip install pandas")
+    sys.exit(1)
+
 from pathlib import Path
+from datetime import datetime, date, timedelta
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 class Pipeline:
@@ -45,7 +61,7 @@ class Pipeline:
         self.competitions_dir = temp_dir["COMPETITIONS"]
         self.matches_dir = temp_dir["MATCHES"]
         self.events_dir = temp_dir["EVENTS"]
-        self.bronze_dir = f"{shared_dir}/data/bronze/statsbomb"
+        self.bronze_dir = f"{shared_dir}/data/bronze"
         self.silver_dir = f"{shared_dir}/data/silver"
         self.gold_dir = f"{shared_dir}/data/gold"
 
@@ -58,7 +74,7 @@ class Pipeline:
         self.spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 
 
-    def ingest_data(self, category):
+    def ingest_data(self, category: str):
         """a"""
         logger.info(f"Fetching data for {category}.")
 
@@ -70,15 +86,10 @@ class Pipeline:
                 df = self.spark.read.schema(schema).json(self.matches_dir, multiLine=True, recursiveFileLookup=True)
             case "events":
                 df = self.spark.read.schema(schema).json(self.events_dir, multiLine=True, recursiveFileLookup=True)
-                df = df.withColumn(
-                    "match_id",
-                    regexp_extract(
-                        input_file_name(),
-                        r"/(\d+)\.json$",
-                        1
-                    ).cast("long")
-                )
-                
+                df = df.withColumn("match_id", regexp_extract(input_file_name(), r"/(\d+)\.json$", 1).cast("long"))
+            case _:
+                raise ValueError(f"Unknown category: {category}")
+        
         df = df.withColumn("ingest_date", to_date(current_timestamp()))
         df = df.withColumn("ingest_time", current_timestamp())
 
@@ -86,16 +97,67 @@ class Pipeline:
         return df
 
 
-    def save_compressed_data(self, df, category):
+    def fetch_weather_data(self, match_df: DataFrame) -> DataFrame:
+        """
+        Fetches weather data from the nearest weather station for the different stadiums.
+        
+        Args:
+            match_df (DataFrame): Statsbomb dataframe containing matches
+
+        Returns:
+            (Dataframe): Returns the weather DataFrame.
+        """
+        logger.info("Fetching weather data from Meteostat API.")
+        # TODO: Expand the helper-function of get_coordinates so it matches more stadiums
+        distinct_df = match_df.select(["match_id", "stadium.name", "match_date"])
+        weather = []
+
+        for row in distinct_df.collect():
+            try:
+                lat, long = self.get_coordinates(row["name"])
+            except KeyError:
+                # TODO: Do we need any handling more than to skip?
+                continue
+
+            POINT = ms.Point(lat, long)
+            station = ms.stations.nearby(POINT, limit=1).index[0]
+
+            match_date =  datetime.strptime(row["match_date"], "%Y-%m-%d")
+            start = match_date + timedelta(hours=12)
+            end = match_date + timedelta(hours=24)
+
+            w = ms.hourly(station, start, end).fetch()
+            if w is None: # Meaning the weather station has no data for that time-slot
+                # TODO: Figure out if we should log it or quarantine it?
+                continue
+
+            w["match_id"] = row["match_id"]
+            weather.append(w)
+
+        weather = pd.concat(weather)
+        weather_df = self.spark.createDataFrame(weather)
+        weather_df = weather_df.withColumn("ingest_date", to_date(current_timestamp()))
+        weather_df = weather_df.withColumn("ingest_time", current_timestamp())
+
+        logger.info(f"Finished fetching weather data. \n - Created DataFrame with size {weather_df.count()}.")
+        return weather_df
+
+
+    def save_compressed_data(self, df: DataFrame, category: str):
+        """Saves dataframe to parquet with the right path."""
         logger.info(f"Creating Parquet files for {category}.")
 
         match category:
             case "competitions":
-                df.write.mode("overwrite").parquet(f"{self.bronze_dir}/competitions", partitionBy="ingest_date")
+                df.write.mode("overwrite").parquet(f"{self.bronze_dir}/statsbomb/competitions", partitionBy="ingest_date")
             case "matches":
-                df.write.mode("overwrite").parquet(f"{self.bronze_dir}/matches", partitionBy="ingest_date")
+                df.write.mode("overwrite").parquet(f"{self.bronze_dir}/statsbomb/matches", partitionBy="ingest_date")
             case "events":
-                df.write.mode("overwrite").parquet(f"{self.bronze_dir}/events", partitionBy="ingest_date")
+                df.write.mode("overwrite").parquet(f"{self.bronze_dir}/statsbomb/events", partitionBy="ingest_date")
+            case "weather":
+                df.write.mode("overwrite").parquet(f"{self.bronze_dir}/meteostat", partitionBy="ingest_date")
+            case "quarantine":
+                df.write.mode("overwrite").parquet(f"{self.bronze_dir}/quarantine", partitionBy="ingest_date")
 
         logger.info(f"Successfully created Parquet-files for {category}.")
 
@@ -117,16 +179,68 @@ class Pipeline:
         }
 
 
-    def get_schema(self, category):
+    def get_coordinates(self, stadium: str):
         """
-        Get the specific schema for the different ingestions.
+        A function that gives you coordinates from all the stadiums participating in Laliga from Statsbomb per November, 2026.
 
         Args:
-            category (str):
+            stadium: Name of the stadium.
 
         Returns:
-            Sparkschema.
+            Tuple with latitude and longitude.
         """
+        stadium_coordinates = {
+            "Abanca-Balaídos" : (42.211766, -8.739666),
+            "Bernabéu" : (40.453044, -3.688197),
+            "Campos de Sport de El Sardinero" : (43.476304, -3.79331),
+            "Coliseum Alfonso Pérez" : (40.325725, -3.714933),
+            "Estadi Municipal de Montilivi" : (41.961166, 2.828428),
+            "Estadi Olímpic Lluís Companys" : (41.36472, 2.155645),
+            "Estadio Abanca-Riazor" : (43.368716, -8.41751),
+            "Estadio Alfredo Di Stéfano" : (40.47697, -3.614285),
+            "Estadio Benito Villamarín" : (37.356406, -5.981739),
+            "Estadio Carlos Belmonte" : (38.981082, -1.852144),
+            "Estadio Ciudad de Valencia" : (39.494643, -0.363862),
+            "Estadio El Alcoraz" : (42.13185, -0.42472),
+            "Estadio El Sadar" : (42.7966625, -1.6371311),
+            "Estadio Enrique Roca de Murcia" : (38.0422241, -1.1447324),
+            "Estadio Heliodoro Rodríguez Lopéz" : (28.4632428, -16.260548),
+            "Estadio José Rico Pérez" : (38.3573459, -0.4925974), 
+            "Estadio La Rosaleda" : (36.73426080783186, -4.426581486641816), 
+            "Estadio Manuel Martínez Valero" : (38.2670445, -0.6633051), 
+            "Estadio Municipal El Molinón" : (43.536142696913366, -5.63743608626228), 
+            "Estadio Municipal José Zorrilla" : (41.6444, -4.7611), 
+            "Estadio Municipal de Butarque" : (40.340562, -3.760643), 
+            "Estadio Municipal de Chapín" : (36.689343, -6.120523), 
+            "Estadio Municipal de Ipurúa" : (43.1817, -2.4758), 
+            "Estadio Nuevo Arcángel" : (37.87219, -4.764581), 
+            "Estadio Nuevo Colombino" : (37.246663, -6.954204), 
+            "Estadio Nuevo Los Cármenes" : (37.152891, -3.595894),
+            "Estadio Nuevo Mirandilla" : (36.502604, -6.273017), 
+            "Estadio Ramón Sánchez Pizjuán" : (37.384088, -5.970631), 
+            "Estadio San Mamés" : (43.2642, -2.9494), 
+            "Estadio Vicente Calderón" : (40.4017, -3.7206), # finnes ikke lengre
+            "Estadio de Gran Canaria" : (28.100234, -15.456725), 
+            "Estadio de Mendizorroza" : (42.8372, -2.6881), 
+            "Estadio de Mestalla" : (39.4747, -0.3583), 
+            "Estadio de Vallecas" : (40.391757, -3.658737), 
+            "Estadio de la Cerámica" : (39.944208, -0.103405), 
+            "Estadio de la Romareda" : (41.643034, -0.901014), 
+            "Estádio Cívitas Metropolitano" : (40.4361, -3.5995), 
+            "Los Pajaritos" : (41.7544, -2.4678), 
+            "Nou Estadi Costa Daurada" : (41.12702, 1.272865), 
+            "Power Horse Stadium – Estadio de los Juegos Mediterráneos" : (36.84, -2.4353), 
+            "Reale Arena" : (43.30139, -1.973569), 
+            "San Mamés Barria" : (43.264204, -2.949391), 
+            "Spotify Camp Nou" : (41.380881, 2.122818), 
+            "Stage Front Stadium" : (41.347847, 2.075603), 
+            "Visit Mallorca Estadi" : (39.5900, 2.6300), 
+        }
+        return stadium_coordinates[stadium]
+
+
+    def get_schema(self, category: str):
+        """Get the specific schema for the different ingestions."""
         match category:
             case "competitions":
                 return StructType([
