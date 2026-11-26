@@ -2,7 +2,7 @@ from pyspark.sql import SparkSession
 
 def initialize_spark():
     """
-    Gets and initializes the spark session. Must be called in the beginning of each of the spark notebooks (01_bronze, 02_silver, 03_gold)
+    Gets and initializes the spark session.
     
     Return
     ------
