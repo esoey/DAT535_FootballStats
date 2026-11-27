@@ -112,14 +112,13 @@ def get_coordinates(stadium, country = None):
     if stadium:
         stadium = stadium.strip()
     else:
-        stadium = ""
+        raise KeyError("Empty string")
 
-    if not stadium:
-        logger.warning(f"Missing stadium name!")
-        return None
-    
+    # TODO: Remove when transferred to cache-file.
     if stadium in stadium_coordinates:
         return stadium_coordinates[stadium]
+    else:
+        raise KeyError("No stadium found in cache")
     
     # load cached coordinates
     if CACHE_PATH.exists():
@@ -136,8 +135,15 @@ def get_coordinates(stadium, country = None):
 
     if query in cache:
         return tuple(cache[query])
+    else:
+        coords = geolocate(query)
+        cache[query] = coords
+        with open(CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dumps(cache, f, indent=4, ensure_ascii=False)
 
-    # geocode if not in cache
+
+def geolocate(query):
+    """En eller annen docstring"""
     try:
         location = geocode(query, timeout=10)
     except GeocoderServiceError as e:
@@ -150,15 +156,11 @@ def get_coordinates(stadium, country = None):
             return None
         
         coordinates = (location.latitude, location.longitude)
-        cache[query] = coordinates
-
-        with open(CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(cache, f, indent=4, ensure_ascii=False)
-
         return coordinates
 
     logger.warning(f"No coordinates found for {query}")
     return None
+
 
 def get_schema(category: str):
         """Get the specific schema for the different ingestions."""

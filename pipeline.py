@@ -1,8 +1,8 @@
+"""Some docstring about document"""
+#region Imports
 import os
 os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-17-openjdk-amd64"
 import sys
-
-from src.helper_functions import get_coordinates, get_paths, get_schema
 
 import logging
 logging.basicConfig(
@@ -44,6 +44,9 @@ except ImportError as e:
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
+from src.helper_functions import get_coordinates, get_paths, get_schema
+#endregion
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 class Pipeline:
@@ -72,7 +75,7 @@ class Pipeline:
         self.spark = initialize_spark()
         self.spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 
-
+    #region Bronze Layer
     def ingest_data(self, category: str):
         """a"""
         logger.info(f"Fetching data for {category}.")
@@ -107,21 +110,18 @@ class Pipeline:
             (Dataframe): Returns the weather DataFrame.
         """
         logger.info("Fetching weather data from Meteostat API.")
-        # match_df.filter(col("competition.competition_name") == "La Liga").select(det som er under))
-        distinct_df = match_df.select(
-            col("match_id"),
-            col("stadium.name").alias("stadium"),
-            col("stadium.country.name").alias("country"),
-            col("match_date")
-            )
+        distinct_df = match_df.select(col("match_id"), col("stadium.name").alias("stadium"), col("stadium.country.name").alias("country"), col("match_date"))
         
         weather = []
 
         for row in distinct_df.collect():
-            coordinates = get_coordinates(row["stadium"], row["country"])
-
-            if coordinates is None:
+            try:
+                coordinates = get_coordinates(row["stadium"], row["country"])
+            except KeyError as e:
+                logger.info(f"No stadium found for {row["stadium"]} in {row["country"]}.")
                 continue
+            # if coordinates is None:
+            #     continue
 
             lat, long = coordinates
 
@@ -166,4 +166,8 @@ class Pipeline:
                 df.write.mode("overwrite").parquet(f"{self.bronze_dir}/quarantine", partitionBy="ingest_date")
 
         logger.info(f"Successfully created Parquet-files for {category}.")
+    #endregion
+
+    #region Silver Layer
+    #endregion
 

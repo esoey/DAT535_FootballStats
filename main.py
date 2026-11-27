@@ -48,4 +48,4 @@ def bronze(category: str = None):
         print(f"Finished saving data to Parquet for {category} with size {df.count()}.")
         df.unpersist()
 
-bronze("competitions")
+bronze()
