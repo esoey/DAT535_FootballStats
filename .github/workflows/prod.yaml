@@ -1,0 +1,51 @@
+name: DAT535 — Production Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: self-hosted
+    environment: main
+    env:
+      DAT535_ENV: prod
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+      STATSBOMB_DATA_DIR: /home/ubuntu/group1/open-data
+      DAT535_OUTPUT_DIR: /home/ubuntu/football-data/prod
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        working-directory: project
+        run: |
+          source ~/football-env/bin/activate
+          python -m pip install -r requirements.txt
+
+      - name: Update Statsbomb data
+        working-directory: /home/ubuntu/group1/open-data
+        run: git pull --ff-only
+
+      - name: Run Production Pipeline
+        working-directory: project
+        run: |
+          source ~/football-env/bin/activate
+          unset SPARK_HOME
+          echo "=== Running Production Pipeline ==="
+          python main.py
+
+      - name: Write pipeline summary
+        if: always()
+        run: |
+          echo "## Football Data Pipeline" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: $DAT535_ENV" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Run: ${{ github.run_number }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Output directory: $DAT535_OUTPUT_DIR" >> "$GITHUB_STEP_SUMMARY"

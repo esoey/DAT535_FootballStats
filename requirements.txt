@@ -3,3 +3,4 @@ statsbombpy
 meteostat
 regex
 pyspark
+geopy
